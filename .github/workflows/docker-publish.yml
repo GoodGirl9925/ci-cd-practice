@@ -17,7 +17,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '18'
-          cache: 'npm'   # 使用 npm 缓存加速
+          #cache: 'npm'   # 使用 npm 缓存加速
 
       - run: npm install
       - run: npm test
