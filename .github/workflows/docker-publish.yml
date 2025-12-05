@@ -1,46 +1,82 @@
+# Workflow 名称，会显示在 GitHub Actions UI 中
 name: Docker Build and Push
 
+# 触发条件：当 main 分支发生 push 时运行
 on:
   push:
     branches: [ "main" ]
 
+# 设置自动生成的 GITHUB_TOKEN 的权限
+# 推送镜像到 GHCR 必须 packages: write
 permissions:
-  contents: read
-  packages: write
+  contents: read     # 允许读取仓库内容
+  packages: write     # 允许写入 GHCR 镜像仓库（关键）
 
 jobs:
+  # ======================================================
+  # 1) Test Job
+  # 目的：确保代码能正常安装依赖并通过测试
+  # ======================================================
   test:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+    runs-on: ubuntu-latest   # 使用 GitHub 提供的 Ubuntu Runner
 
-      - uses: actions/setup-node@v4
+    steps:
+      # ---- Step 1: 检出当前仓库的代码 ----
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      # ---- Step 2: 安装 Node.js 环境 ----
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
         with:
-          node-version: '18'
-          #cache: 'npm'   # 使用 npm 缓存加速
+          node-version: '18'   # 与 Dockerfile 中 Node 版本保持一致
 
-      - run: npm install
-      - run: npm test
+      # ---- Step 3: 安装依赖（会根据 package.json 自动安装）----
+      - name: Install dependencies
+        run: npm install
 
+      # ---- Step 4: 执行测试脚本（本实验中会直接 exit 0）----
+      - name: Run tests
+        run: npm test
+
+
+  # ======================================================
+  # 2) Build-and-Push Job
+  # 目的：仅在 test Job 成功后，自动构建并推送 Docker 镜像
+  # ======================================================
   build-and-push:
-    needs: test
+    needs: test   # 依赖 test Job，测试必须通过才能继续
     runs-on: ubuntu-latest
 
     steps:
-      - uses: actions/checkout@v4
+      # ---- Step 1: 再次检出代码（每个 Job 环境都是独立的）----
+      - name: Checkout repository
+        uses: actions/checkout@v4
 
-      - uses: docker/setup-buildx-action@v3
+      # ---- Step 2: 设置 Docker Buildx（官方推荐方式）----
+      # Buildx 支持多平台构建和更强的缓存能力
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v3
 
-      - uses: docker/login-action@v3
+      # ---- Step 3: 登录 GitHub Container Registry (GHCR) ----
+      # 使用 GitHub 自动提供的 GITHUB_TOKEN 完成登录
+      # 不需要你自己创建 secret
+      - name: Log in to the Container registry
+        uses: docker/login-action@v3
         with:
           registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+          username: ${{ github.actor }}           # 当前执行 workflow 的用户
+          password: ${{ secrets.GITHUB_TOKEN }}   # 自动生成的 Token
 
-      - uses: docker/build-push-action@v5
+      # ---- Step 4: 构建并推送 Docker 镜像 ----
+      # Buildx 会自动使用 Dockerfile 进行构建
+      - name: Build and push Docker image
+        uses: docker/build-push-action@v5
         with:
-          context: .
-          push: true
-          tags: |
-            ghcr.io/${{ github.repository_owner }}/ci-cd-practice:latest
-            ghcr.io/${{ github.repository_owner }}/ci-cd-practice:${{ github.sha }}
+          context: .         # 以当前目录为构建上下文（必须包含 Dockerfile）
+          push: true         # 设为 true 才会推送镜像到 GHCR
+
+          # 镜像名称必须全部小写
+          # 你的镜像位置将是：
+          #   ghcr.io/<你的 GitHub 用户名>/ci-cd-practice:latest
+          tags: ghcr.io/${{ github.repository_owner }}/ci-cd-practice:latest
